@@ -1,0 +1,192 @@
+{
+  "Scheduler": {
+    "dt": 0.001,
+    "CheckFrequency": true,
+    "InferTask": {
+      "PolicyFrequency": 10
+    }
+  },
+  "Workers": {
+    "ResetPosition": {
+      "Duration": 3
+    },
+    "Commander": {
+      "EchoCmd": true,
+      "UpperLimit": [
+        1.4,
+        0.3,
+        0.3
+      ],
+      "LowerLimit": [
+        -1.5,
+        -0.3,
+        -0.3
+      ],
+      "DiscreteCmdStep": [
+        0.2,
+        0.05,
+        0.05
+      ],
+      "ReverseJoystickAxis": [
+        false,
+        true,
+        true
+      ]
+    },
+    "MotorPDLoop": {
+      "Kp": [
+        200,
+        200,
+        300,
+        300,
+        60,
+        60,
+        200,
+        200,
+        300,
+        300,
+        60,
+        60
+      ],
+      "Kd": [
+        2.5,
+        2.5,
+        2.5,
+        2,
+        2,
+        2,
+        2.5,
+        2.5,
+        2.5,
+        2,
+        2,
+        2
+      ]
+    },
+    "MotorControl": {
+      "ControlMode": "Torque",
+      "TorqueLimit": [
+        1000,
+        1000,
+        1000,
+        2000,
+        1000,
+        1000,
+        1000,
+        1000,
+        1000,
+        2000,
+        1000,
+        1000
+      ],
+      "PosFilterWeight": [
+        1
+      ],
+      "VelFilterWeight": [
+        1
+      ],
+      "DefaultPosition": [
+        0.0,
+        0.0,
+        -0.3,
+        0.6,
+        -0.3,
+        0.0,
+        0.0,
+        0.0,
+        -0.3,
+        0.6,
+        -0.3,
+        0.0
+      ]
+    },
+    "ImuProcess": {
+      "AccFilterWeight": [
+        1
+      ],
+      "GyroFilterWeight": [
+        1
+      ],
+      "MagFilterWeight": [
+        1
+      ]
+    },
+    "AsyncLogger": {
+      "LogPath": "./log/extra_data/",
+      "WriteBackFrequency": 100
+    },
+    "NN": {
+      "Inference": {
+        "WarmUpModel": false,
+        "IntraNumberThreads": 1
+      },
+      "Network": {
+        // "ModelPath": "/home/junahng/Documents/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/Apr23_21-57-57/policy_actor_50000__.onnx",
+        "ModelPath": "/home/junahng/Documents/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/Apr23_21-57-57/policy_actor_50000.onnx",
+        "InputNodeNames": [
+          "observation"
+        ],
+        "OutputNodeNames": [
+          "action"
+        ],
+        "Cycle_time": 1.2, 
+        "SwitchTime": 1.0
+      },
+      "Preprocess": {
+        "ObservationScales": {
+          "lin_vel": 2.0,
+          "ang_vel": 1.0,
+          "project_gravity": 1.0,
+          "dof_pos": 1.0,
+          "dof_vel": 0.05
+        },
+        "ClipObservations": 48
+      },
+      "Postprocess": {
+        "clip_actions": 48,
+        "action_scale": [
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25,
+          0.25
+        ],
+        "joint_clip_upper": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100,
+          100
+        ],
+        "joint_clip_lower": [
+          -100,
+          -100,
+          -100,
+          -100,
+          -100,
+          -100,
+          -100,
+          -100,
+          -100,
+          -100,
+          -100,
+          -100
+        ]
+      }
+    }
+  }
+}

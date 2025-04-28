@@ -59,6 +59,30 @@ namespace z
         math::Vector<Scalar, 3> ProjectedGravityVec = { ProjectedGravity[0],ProjectedGravity[1],ProjectedGravity[2] };
         return ProjectedGravityVec;
     }
+
+    /**
+     * @brief Compute the AngVelocity for XYZ Eular angle
+     * 
+     * @tparam Scalar arithmetic type, could be double or float
+     * @param EularAngle XYZ Eular angle vector
+     * @param AngVelocity AngVelocity vector
+     * @return math::Vector<Scalar, 3> AngVelocity vector
+     */
+    template<typename Scalar>
+    math::Vector<Scalar, 3> ComputeBaseAngVelocity(math::Vector<Scalar, 3>& EularAngle, const math::Vector<Scalar, 3>& AngVelocity = { 0,0,0 })
+    {
+        static_assert(std::is_arithmetic<Scalar>::value, "Scalar must be a arithmetic type");
+
+        Eigen::Matrix3<Scalar> RotMat;
+        RotMat = (Eigen::AngleAxis<Scalar>(EularAngle[2], Eigen::Vector3<Scalar>::UnitZ())
+            * Eigen::AngleAxis<Scalar>(EularAngle[1], Eigen::Vector3<Scalar>::UnitY())
+            * Eigen::AngleAxis<Scalar>(EularAngle[0], Eigen::Vector3<Scalar>::UnitX()));
+        Eigen::Vector3 <Scalar> AngVelVec(AngVelocity[0], AngVelocity[1], AngVelocity[2]);
+        Eigen::Vector3 <Scalar> ProjectedAngVel = RotMat.transpose() * AngVelVec;
+
+        math::Vector<Scalar, 3> ProjectedAngVelVec = { ProjectedAngVel[0],ProjectedAngVel[1],ProjectedAngVel[2] };
+        return ProjectedAngVelVec;
+    }
 };
 
 

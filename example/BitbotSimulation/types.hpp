@@ -24,18 +24,22 @@
 
 #include "Workers/NN/EraxLikeInferenceWorker.hpp"
 #include "Workers/NN/HumanoidGymInferenceWorker.hpp"
+#include "Workers/NN/BHRFC2InferenceWorker.hpp"
 
 
 #include "bitbot_mujoco/device/mujoco_imu.h"
 #include "bitbot_mujoco/device/mujoco_joint.h"
+#include "bitbot_mujoco/device/mujoco_force_sensor.h"
 
 using DeviceImu = bitbot::MujocoImu;
 using DeviceJoint = bitbot::MujocoJoint;
+using DeviceForceSensor = bitbot::MujocoForceSensor;
 
 /************ basic definintion***********/
 using RealNumber = float;
-constexpr size_t JOINT_NUMBER = 8;
+constexpr size_t JOINT_NUMBER = 12;
 using Vec3 = z::math::Vector<RealNumber, 3>;
+using Vec6 = z::math::Vector<RealNumber, 6>;
 using MotorVec = z::math::Vector<RealNumber, JOINT_NUMBER>;
 
 /********** IMU Data Pair******************/
@@ -68,6 +72,11 @@ constexpr z::CTSPair<"NetProjectedGravity", Vec3> NetProjectedGravityPair;
 constexpr z::CTSPair<"NetScaledAction", MotorVec> NetScaledActionPair;
 constexpr z::CTSPair<"NetClockVector", z::math::Vector<RealNumber, 2>> NetClockVectorPair;
 constexpr z::CTSPair<"InferenceTime", RealNumber> InferenceTimePair;
+constexpr z::CTSPair<"NetBaseAngVelocityValue",Vec3> NetBaseAngVelocityValuePair;
+
+/********* Force Sensor pair ********************/
+constexpr z::CTSPair<"LeftForceSensor", Vec6> LeftForceSensorPair;
+constexpr z::CTSPair<"RightForceSensor", Vec6> RightForceSensorPair;
 
 // define scheduler
 using SchedulerType = z::AbstractScheduler<ImuAccRawPair, ImuGyroRawPair, ImuMagRawPair, LinearVelocityValuePair,
@@ -75,7 +84,8 @@ using SchedulerType = z::AbstractScheduler<ImuAccRawPair, ImuGyroRawPair, ImuMag
     TargetMotorPosPair, TargetMotorVelPair, CurrentMotorPosPair, CurrentMotorVelPair, CurrentMotorTorquePair,
     TargetMotorTorquePair, LimitTargetMotorTorquePair,
     CurrentMotorVelRawPair, CurrentMotorPosRawPair,
-    NetLastActionPair, NetCommand3Pair, NetProjectedGravityPair, NetScaledActionPair, NetClockVectorPair, InferenceTimePair>;
+    NetLastActionPair, NetCommand3Pair, NetProjectedGravityPair, NetScaledActionPair, NetClockVectorPair, InferenceTimePair, NetBaseAngVelocityValuePair,
+    LeftForceSensorPair, RightForceSensorPair>;
 
 
 //define workers
@@ -87,14 +97,17 @@ using LoggerWorkerType = z::AsyncLoggerWorker<SchedulerType, RealNumber, ImuAccR
     ImuAccFilteredPair, ImuGyroFilteredPair, ImuMagFilteredPair,
     TargetMotorPosPair, TargetMotorVelPair, CurrentMotorPosPair, CurrentMotorVelPair, CurrentMotorTorquePair,
     TargetMotorTorquePair, LimitTargetMotorTorquePair,
-    NetLastActionPair, NetCommand3Pair, NetProjectedGravityPair, NetScaledActionPair, NetClockVectorPair, InferenceTimePair>;
+    NetLastActionPair, NetCommand3Pair, NetProjectedGravityPair, NetScaledActionPair, NetClockVectorPair, InferenceTimePair, NetBaseAngVelocityValuePair,
+    LeftForceSensorPair, RightForceSensorPair>;
 
 using CmdWorkerType = z::NetCmdWorker<SchedulerType, RealNumber, NetCommand3Pair>;
 using FlexPatchWorkerType = z::SimpleCallbackWorker<SchedulerType>;
 
 
 /******define actor net************/
-constexpr size_t OBSERVATION_STUCK_LENGTH = 10;
+constexpr size_t OBSERVATION_STUCK_LENGTH = 15;
 constexpr size_t OBSERVATION_EXTRA_LENGTH = 5;
-//using HumanoidGymInferWorkerType = z::HumanoidGymInferenceWorker<SchedulerType, RealNumber,OBSERVATION_STUCK_LENGTH, JOINT_NUMBER>;
-using EraxLikeInferWorkerType = z::EraxLikeInferenceWorker<SchedulerType, RealNumber, OBSERVATION_STUCK_LENGTH, OBSERVATION_EXTRA_LENGTH, JOINT_NUMBER>;
+
+using BHRFC2InferWorkerType = z::BHRFC2InferenceWorker<SchedulerType, RealNumber, OBSERVATION_STUCK_LENGTH, JOINT_NUMBER>;
+// using HumanoidGymInferWorkerType = z::HumanoidGymInferenceWorker<SchedulerType, RealNumber,OBSERVATION_STUCK_LENGTH, JOINT_NUMBER>;
+// using EraxLikeInferWorkerType = z::EraxLikeInferenceWorker<SchedulerType, RealNumber, OBSERVATION_STUCK_LENGTH, OBSERVATION_EXTRA_LENGTH, JOINT_NUMBER>;

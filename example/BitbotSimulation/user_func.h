@@ -44,9 +44,12 @@ struct UserData
     MotorWorkerType* MotorWorker;
     MotorPDWorkerType* MotorPDWorker;
     LoggerWorkerType* Logger;
-    EraxLikeInferWorkerType* NetInferWorker;
+    // EraxLikeInferWorkerType* NetInferWorker;
+    // HumanoidGymInferWorkerType* NetInferWorker;
+    BHRFC2InferWorkerType* NetInferWorker;
     MotorResetWorkerType* MotorResetWorker;
     CmdWorkerType* CommanderWorker;
+    FlexPatchWorkerType* ForceSensorWorker;
     //NOTE: REMEMBER TO DELETE THESE POINTERS IN FinishFunc
 };
 

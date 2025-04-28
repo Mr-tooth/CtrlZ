@@ -20,6 +20,7 @@
 #include <fstream>
 #include "types.hpp"
 
+DeviceForceSensor *l_force_sensor=nullptr, *r_force_sensor = nullptr;
 
 void ConfigFunc(const KernelBus& bus, UserData& d)
 {
@@ -28,7 +29,7 @@ void ConfigFunc(const KernelBus& bus, UserData& d)
     nlohmann::json cfg_workers;
     {
         //NOTE: 注意将配置文件路径修改为自己的路径
-        std::string path = PROJECT_ROOT_DIR + std::string("/config.json");
+        std::string path = PROJECT_ROOT_DIR + std::string("/config_bhr8fc2.json");
         std::ifstream cfg_file(path);
         cfg_root = nlohmann::json::parse(cfg_file, nullptr, true, true);
         cfg_workers = cfg_root["Workers"];
@@ -39,31 +40,64 @@ void ConfigFunc(const KernelBus& bus, UserData& d)
 
 
     //初始化各个worker
-    d.ImuWorker = new ImuWorkerType(d.TaskScheduler, bus.GetDevice<DeviceImu>(8).value(), cfg_workers["ImuProcess"]);
+    d.ImuWorker = new ImuWorkerType(d.TaskScheduler, bus.GetDevice<DeviceImu>(0).value(), cfg_workers["ImuProcess"]);
     d.MotorWorker = new MotorWorkerType(d.TaskScheduler, cfg_workers["MotorControl"], {
-          bus.GetDevice<DeviceJoint>(0).value(),
           bus.GetDevice<DeviceJoint>(1).value(),
           bus.GetDevice<DeviceJoint>(2).value(),
           bus.GetDevice<DeviceJoint>(3).value(),
           bus.GetDevice<DeviceJoint>(4).value(),
           bus.GetDevice<DeviceJoint>(5).value(),
           bus.GetDevice<DeviceJoint>(6).value(),
-          bus.GetDevice<DeviceJoint>(7).value() });
+          bus.GetDevice<DeviceJoint>(7).value(),
+          bus.GetDevice<DeviceJoint>(8).value(),
+          bus.GetDevice<DeviceJoint>(9).value(),
+          bus.GetDevice<DeviceJoint>(10).value(),
+          bus.GetDevice<DeviceJoint>(11).value(),
+          bus.GetDevice<DeviceJoint>(12).value(),
+           });
     d.MotorPDWorker = new MotorPDWorkerType(d.TaskScheduler, cfg_workers["MotorPDLoop"]);
     d.Logger = new LoggerWorkerType(d.TaskScheduler, cfg_workers["AsyncLogger"]);
     d.CommanderWorker = new CmdWorkerType(d.TaskScheduler, cfg_workers["Commander"]);
 
+    //获取左右脚的力传感器
+
+    l_force_sensor = bus.GetDevice<DeviceForceSensor>(14).value();
+    r_force_sensor = bus.GetDevice<DeviceForceSensor>(15).value(); 
+
+    d.ForceSensorWorker = new FlexPatchWorkerType(d.TaskScheduler, 
+        [](SchedulerType * schedular){
+            Vec6 lforce, rforce;
+            lforce(0) = l_force_sensor->GetForceX();
+            lforce(1) = l_force_sensor->GetForceY();
+            lforce(2) = l_force_sensor->GetForceZ();
+            lforce(3) = l_force_sensor->GetTorqueX();
+            lforce(4) = l_force_sensor->GetTorqueY();
+            lforce(5) = l_force_sensor->GetTorqueZ();
+            rforce(0) = r_force_sensor->GetForceX();
+            rforce(1) = r_force_sensor->GetForceY();
+            rforce(2) = r_force_sensor->GetForceZ();
+            rforce(3) = r_force_sensor->GetTorqueX();
+            rforce(4) = r_force_sensor->GetTorqueY();
+            rforce(5) = r_force_sensor->GetTorqueZ();
+
+            schedular->template SetData<"LeftForceSensor">(lforce);
+            schedular->template SetData<"RightForceSensor">(rforce);
+        }, cfg_root);
+        
     //创建主任务列表，并添加worker
     d.TaskScheduler->CreateTaskList("MainTask", 1, true);
     d.TaskScheduler->AddWorkers("MainTask",
         {
             d.ImuWorker,
             d.MotorPDWorker,
-            d.MotorWorker
+            d.MotorWorker,
+            d.ForceSensorWorker,
         });
 
     //创建推理任务列表，并添加worker，设置推理任务频率
-    d.NetInferWorker = new EraxLikeInferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
+    // d.NetInferWorker = new EraxLikeInferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
+    // d.NetInferWorker = new HumanoidGymInferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
+    d.NetInferWorker = new BHRFC2InferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
     d.TaskScheduler->CreateTaskList("InferTask", cfg_root["Scheduler"]["InferTask"]["PolicyFrequency"]);
     d.TaskScheduler->AddWorker("InferTask", d.NetInferWorker);
     d.TaskScheduler->AddWorker("InferTask", d.Logger);
