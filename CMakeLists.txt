@@ -8,13 +8,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include_directories(${PROJECT_SOURCE_DIR}/CtrlZ)
 
-option(BUILD_DOC "Build documentation" OFF)
+option(BUILD_DOC "Build documentation" ON)
 
 
 if(WIN32)
   set(ONNXRUNTIME_ROOT "C:/ProgramFiles/lib/onnxruntime")
 elseif(UNIX)
-    set(ONNXRUNTIME_ROOT "/home/junahng/下载/onnxruntime-linux-x64-gpu-1.21.1")
+    set(ONNXRUNTIME_ROOT "/home/junahng/Documents/onnxruntime-linux-x64-gpu-1.21.1")
 else()
     message(FATAL_ERROR "Unsupported platform")
 endif()
