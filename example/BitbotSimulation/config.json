@@ -105,7 +105,7 @@
         "IntraNumberThreads": 1
       },
       "Network": {
-        "ModelPath": "/home/junahng/文档/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/policy_1.onnx",
+        "ModelPath": "/home/junahng/Documents/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/policy_1.onnx",
         //"ModelPath": "/home/owheel/Documents/BITWheelFoot/CheckPoints/policy_1.onnx",
         "InputNodeNames": [
           "observation"

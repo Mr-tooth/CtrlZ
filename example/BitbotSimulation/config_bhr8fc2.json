@@ -122,14 +122,16 @@
       },
       "Network": {
         // "ModelPath": "/home/junahng/Documents/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/Apr23_21-57-57/policy_actor_50000__.onnx",
-        "ModelPath": "/home/junahng/Documents/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/Apr23_21-57-57/policy_actor_50000.onnx",
+        // "ModelPath": "/home/junahng/Documents/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/Apr23_21-57-57/policy_actor_50000.onnx",
+        "ModelPath": "/home/junahng/Documents/GitHub/CtrlZ/example/BitbotSimulation/CheckPoints/Apr30-10-36-53/policy_actor_45000_.onnx",
         "InputNodeNames": [
           "observation"
         ],
         "OutputNodeNames": [
           "action"
         ],
-        "Cycle_time": 1.2, 
+        "Cycle_time": 0.8, 
+        // "Cycle_time": 1.2, 
         "SwitchTime": 1.0
       },
       "Preprocess": {
