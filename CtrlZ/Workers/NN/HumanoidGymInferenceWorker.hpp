@@ -81,14 +81,14 @@ namespace z
             //concatenate all scales
             auto clock_scales = math::Vector<InferencePrecision, 2>::ones();
             this->InputScaleVec = math::cat(
-                clock_scales,
-                this->Scales_command3,
-                this->Scales_dof_pos,
-                this->Scales_dof_vel,
-                this->Scales_last_action,
-                this->Scales_ang_vel,
-                this->Scales_project_gravity
-            );
+                clock_scales, // 2
+                this->Scales_command3, // 3
+                this->Scales_dof_pos, // 12
+                this->Scales_dof_vel, // 12
+                this->Scales_last_action, // 12
+                this->Scales_ang_vel, // 3
+                this->Scales_project_gravity // 3
+            ); // 2+3+12+12+12+3+3=47
             this->OutputScaleVec = this->ActionScale;
 
             //warp input tensor
@@ -136,6 +136,9 @@ namespace z
             ValVec3 Ang;
             this->Scheduler->template GetData<"AngleValue">(Ang);
 
+            ValVec3 ProjectedGravity = ComputeProjectedGravity(Ang, this->GravityVector);
+            this->Scheduler->template SetData<"NetProjectedGravity">(ProjectedGravity);
+
 
             size_t t = this->Scheduler->getTimeStamp();
             InferencePrecision phase = this->dt * static_cast<InferencePrecision>(t) / this->cycle_time;
@@ -151,7 +154,8 @@ namespace z
                 CurrentMotorVel,
                 LastAction,
                 AngVel,
-                Ang
+                // Ang
+                ProjectedGravity
             ) * this->InputScaleVec;
 
             this->HistoryInputBuffer.push(SingleInputVecScaled);
