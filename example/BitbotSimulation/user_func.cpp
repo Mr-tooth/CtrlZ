@@ -94,10 +94,17 @@ void ConfigFunc(const KernelBus& bus, UserData& d)
             d.ForceSensorWorker,
         });
 
+    const std::vector<std::string> leggedlab_joint_order = { "lhipYaw", "rhipYaw", "lhipRoll", "rhipRoll", "lhipPitch", "rhipPitch", "lknee", "rknee", "lankle1", "rankle1", "lankle2", "rankle2" };
+    const std::vector<std::string> ctrlz_joint_order = {
+        "lhipYaw", "lhipRoll", "lhipPitch", "lknee", "lankle1", "lankle2", 
+        "rhipYaw", "rhipRoll", "rhipPitch", "rknee", "rankle1", "rankle2"
+    };
     //创建推理任务列表，并添加worker，设置推理任务频率
     // d.NetInferWorker = new EraxLikeInferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
     // d.NetInferWorker = new HumanoidGymInferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
-    d.NetInferWorker = new BHRFC2InferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
+    // d.NetInferWorker = new BHRFC2InferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"]);
+    d.NetInferWorker = new DwaqInferWorkerType(d.TaskScheduler, cfg_workers["NN"], cfg_workers["MotorControl"],
+        leggedlab_joint_order, ctrlz_joint_order);
     d.TaskScheduler->CreateTaskList("InferTask", cfg_root["Scheduler"]["InferTask"]["PolicyFrequency"]);
     d.TaskScheduler->AddWorker("InferTask", d.NetInferWorker);
     d.TaskScheduler->AddWorker("InferTask", d.Logger);

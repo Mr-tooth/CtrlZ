@@ -46,7 +46,8 @@ struct UserData
     LoggerWorkerType* Logger;
     // EraxLikeInferWorkerType* NetInferWorker;
     // HumanoidGymInferWorkerType* NetInferWorker;
-    BHRFC2InferWorkerType* NetInferWorker;
+    // BHRFC2InferWorkerType* NetInferWorker;
+    DwaqInferWorkerType* NetInferWorker;
     MotorResetWorkerType* MotorResetWorker;
     CmdWorkerType* CommanderWorker;
     FlexPatchWorkerType* ForceSensorWorker;

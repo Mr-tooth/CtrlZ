@@ -25,6 +25,7 @@
 #include "Workers/NN/EraxLikeInferenceWorker.hpp"
 #include "Workers/NN/HumanoidGymInferenceWorker.hpp"
 #include "Workers/NN/BHRFC2InferenceWorker.hpp"
+#include "Workers/NN/BHRFC2DwaqInferenceWorker.hpp"
 
 
 #include "bitbot_mujoco/device/mujoco_imu.h"
@@ -108,6 +109,7 @@ using FlexPatchWorkerType = z::SimpleCallbackWorker<SchedulerType>;
 constexpr size_t OBSERVATION_STUCK_LENGTH = 15;
 constexpr size_t OBSERVATION_EXTRA_LENGTH = 5;
 
-using BHRFC2InferWorkerType = z::BHRFC2InferenceWorker<SchedulerType, RealNumber, OBSERVATION_STUCK_LENGTH, JOINT_NUMBER>;
+using DwaqInferWorkerType = z::DWAQInferenceWorker<SchedulerType, RealNumber, OBSERVATION_STUCK_LENGTH, JOINT_NUMBER>;
+// using BHRFC2InferWorkerType = z::BHRFC2InferenceWorker<SchedulerType, RealNumber, OBSERVATION_STUCK_LENGTH, JOINT_NUMBER>;
 // using HumanoidGymInferWorkerType = z::HumanoidGymInferenceWorker<SchedulerType, RealNumber,OBSERVATION_STUCK_LENGTH, JOINT_NUMBER>;
 // using EraxLikeInferWorkerType = z::EraxLikeInferenceWorker<SchedulerType, RealNumber, OBSERVATION_STUCK_LENGTH, OBSERVATION_EXTRA_LENGTH, JOINT_NUMBER>;
