@@ -2,6 +2,7 @@
  * @file DWAQInferenceWorker.hpp
  * @author Gemini AI (guided by Junhang Lai)
  * @brief An inference worker for the DreamWaQ policy architecture.
+ * @version 2.0 (Optimized for data logging consistency and logic alignment)
  * @date 2025-07-05
  *
  * @copyright Copyright (c) 2025
@@ -13,6 +14,10 @@
 #include "Utils/ZenBuffer.hpp"
 #include <chrono>
 #include <cmath>
+#include <vector>
+#include <string>
+#include <algorithm> // for std::find
+#include <stdexcept> // for std::runtime_error
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -22,10 +27,8 @@ namespace z {
 
 /**
  * @brief DWAQInferenceWorker 实现了 DreamWaQ [https://arxiv.org/abs/2301.05268] 论文中策略网络的推理逻辑。
- * @details 该Worker专门处理DWAQ模型的双输入特性：
- *          1. `obs`: 当前时刻的本体感知观测。
- *          2. `obs_history`: 过去N个时刻的本体感知观测构成的历史序列。
- *          它继承自 CommonLocoInferenceWorker 以复用通用的参数加载逻辑。
+ * @details 该Worker专门处理DWAQ模型的双输入特性，并内置了关节顺序重映射功能，以解决训练和部署框架间的差异。
+ *          V2.0 版本修复了日志数据顺序不一致的问题，并与leggedlab中的逻辑严格对齐。
  *
  * @tparam SchedulerType 调度器类型
  * @tparam InferencePrecision 推理精度 (float or double)
@@ -46,76 +49,89 @@ private:
     // 根据 leggedlab/envs/bhrfc2_dwaq_mm/bhr_fc2_dwaq_mm_env.py 中 compute_current_observations 的定义
     // ang_vel(3) + projected_gravity(3) + command(3) + phase_obs(2) + one_hot_gait(2) + joint_pos(12) + joint_vel(12) + action(12) = 49
     static constexpr size_t SINGLE_FRAME_LENGTH = 3 + 3 + 3 + 2 + 2 + JOINT_NUMBER + JOINT_NUMBER + JOINT_NUMBER;
-    
-    // ONNX模型的两个输入张量
-    // 1. 当前观测
-    z::math::Tensor<InferencePrecision, 1, SINGLE_FRAME_LENGTH> InputObsTensor;
-    // 2. 历史观测
     static constexpr size_t HISTORY_TENSOR_LENGTH = SINGLE_FRAME_LENGTH * HISTORY_LENGTH;
-    z::math::Tensor<InferencePrecision, 1, HISTORY_TENSOR_LENGTH> InputHistoryTensor;
-
-    // ONNX模型的输出张量
     static constexpr size_t OUTPUT_LENGTH = JOINT_NUMBER;
+
+    // ONNX模型的输入输出张量
+    z::math::Tensor<InferencePrecision, 1, SINGLE_FRAME_LENGTH> InputObsTensor;
+    z::math::Tensor<InferencePrecision, 1, HISTORY_TENSOR_LENGTH> InputHistoryTensor;
     z::math::Tensor<InferencePrecision, 1, OUTPUT_LENGTH> OutputTensor;
 
-    // 用于管理历史观测帧的环形缓冲区
     z::RingBuffer<z::math::Vector<InferencePrecision, SINGLE_FRAME_LENGTH>> HistoryObsBuffer;
-
-    // 用于构建和缩放单帧观测的向量
     z::math::Vector<InferencePrecision, SINGLE_FRAME_LENGTH> InputScaleVec;
     z::math::Vector<InferencePrecision, OUTPUT_LENGTH> OutputScaleVec;
-
     const ValVec3 GravityVector;
     InferencePrecision cycle_time;
     InferencePrecision dt;
     std::chrono::steady_clock::time_point start_time, end_time;
 
+    // --- 关节重映射索引向量 ---
+    // LeggedLab 关节顺序 -> CtrlZ 关节顺序
+    z::math::Vector<int, JOINT_NUMBER> LeggedLabToCtrlZ_RemapIdx;
+
 public:
-    DWAQInferenceWorker(SchedulerType* scheduler, const nlohmann::json& Net_cfg, const nlohmann::json& Motor_cfg)
+    DWAQInferenceWorker(
+        SchedulerType* scheduler, 
+        const nlohmann::json& Net_cfg, 
+        const nlohmann::json& Motor_cfg,
+        const std::vector<std::string>& leggedlab_joint_order,
+        const std::vector<std::string>& ctrlz_joint_order)
         : Base(scheduler, Net_cfg, Motor_cfg),
           GravityVector({0.0, 0.0, -1.0}),
-          HistoryObsBuffer(HISTORY_LENGTH, z::math::Vector<InferencePrecision, SINGLE_FRAME_LENGTH>::zeros()) // 用0初始化
+          HistoryObsBuffer(HISTORY_LENGTH, z::math::Vector<InferencePrecision, SINGLE_FRAME_LENGTH>::zeros())
     {
-        // --- 1. 读取DWAQ特定配置 ---
         nlohmann::json NetworkCfg = Net_cfg["Network"];
         this->cycle_time = NetworkCfg["Cycle_time"].get<InferencePrecision>();
         this->dt = scheduler->getSpinOnceTime();
         
-        // --- 2. 精确构建观测缩放向量 (顺序必须与PreProcess中拼接的顺序完全一致) ---
+        // --- 1. 计算关节重映射索引 ---
+        if (leggedlab_joint_order.size() != JOINT_NUMBER || ctrlz_joint_order.size() != JOINT_NUMBER) {
+            throw std::runtime_error("Joint order vectors size mismatch with JOINT_NUMBER.");
+        }
+        for (size_t i = 0; i < JOINT_NUMBER; ++i) {
+            const auto& leggedlab_name = leggedlab_joint_order[i];
+            auto it = std::find(ctrlz_joint_order.begin(), ctrlz_joint_order.end(), leggedlab_name);
+            if (it == ctrlz_joint_order.end()) {
+                throw std::runtime_error("Joint '" + leggedlab_name + "' from leggedlab order not found in ctrlz order.");
+            }
+            this->LeggedLabToCtrlZ_RemapIdx[i] = std::distance(ctrlz_joint_order.begin(), it);
+        }
+        
+        // --- 2. 精确构建观测缩放向量 (顺序严格对齐Python实现) ---
+        auto clock_scales = math::Vector<InferencePrecision, 2>::ones(); // Per request, scale is 1
+        auto gait_scales = math::Vector<InferencePrecision, 2>::ones();  // Per request, scale is 1
+        
         this->InputScaleVec = math::cat(
-            this->Base::Scales_ang_vel,         // 3
-            this->Base::Scales_project_gravity, // 3
-            this->Base::Scales_command3,        // 3
-            ValVec3::ones() * this->Base::Scales_command3[0], // 2 for phase (use command scale)
-            ValVec3::ones() * this->Base::Scales_command3[0], // 2 for gait_mode (use command scale)
-            this->Base::Scales_dof_pos,         // JOINT_NUMBER
-            this->Base::Scales_dof_vel,         // JOINT_NUMBER
-            this->Base::Scales_last_action      // JOINT_NUMBER
+            this->Base::Scales_ang_vel,
+            this->Base::Scales_project_gravity,
+            this->Base::Scales_command3,
+            clock_scales,
+            gait_scales,
+            this->Base::Scales_dof_pos,
+            this->Base::Scales_dof_vel,
+            this->Base::Scales_last_action
         );
-        // 验证维度
         if (this->InputScaleVec.size() != SINGLE_FRAME_LENGTH) {
             throw std::runtime_error("DWAQInferenceWorker: InputScaleVec size mismatch with SINGLE_FRAME_LENGTH");
         }
-
         this->OutputScaleVec = this->Base::ActionScale;
 
         // --- 3. 绑定ONNX模型的输入输出张量 ---
         this->Base::InputOrtTensors__.clear();
         this->Base::OutputOrtTensors__.clear();
-        // 顺序必须与 "InputNodeNames" 在JSON中的顺序一致: ["obs", "obs_history"]
         this->Base::InputOrtTensors__.push_back(this->Base::WarpOrtTensor(InputObsTensor));
         this->Base::InputOrtTensors__.push_back(this->Base::WarpOrtTensor(InputHistoryTensor));
-        // 绑定输出
         this->Base::OutputOrtTensors__.push_back(this->Base::WarpOrtTensor(OutputTensor));
 
         // --- 4. 打印初始化信息 ---
         this->Base::PrintSplitLine();
-        std::cout << "DWAQInferenceWorker Initialized" << std::endl;
+        std::cout << "DWAQInferenceWorker Initialized (V2.0 - Data-Consistent Logging)" << std::endl;
         std::cout << "  - Single Obs Frame Size: " << SINGLE_FRAME_LENGTH << std::endl;
         std::cout << "  - History Length: " << HISTORY_LENGTH << std::endl;
-        std::cout << "  - ONNX Input 'obs' Shape: (1, " << SINGLE_FRAME_LENGTH << ")" << std::endl;
-        std::cout << "  - ONNX Input 'obs_history' Shape: (1, " << HISTORY_TENSOR_LENGTH << ")" << std::endl;
-        std::cout << "  - ONNX Output 'actions' Shape: (1, " << OUTPUT_LENGTH << ")" << std::endl;
+        std::cout << "\n[*] Joint Remapping (LeggedLab Index -> CtrlZ Index):" << std::endl;
+        for (size_t i = 0; i < JOINT_NUMBER; ++i) {
+            std::cout << "    '" << leggedlab_joint_order[i] << "' (" << i << ") -> " << this->LeggedLabToCtrlZ_RemapIdx[i] << std::endl;
+        }
         this->Base::PrintSplitLine();
     }
 
@@ -124,13 +140,13 @@ public:
     void PreProcess() override {
         this->start_time = std::chrono::steady_clock::now();
 
-        // --- 1. 从DataCenter获取所有必需的原始数据 ---
-        MotorValVec CurrentMotorPos;
-        this->Base::Scheduler->template GetData<"CurrentMotorPosition">(CurrentMotorPos);
-        MotorValVec CurrentMotorVel;
-        this->Base::Scheduler->template GetData<"CurrentMotorVelocity">(CurrentMotorVel);
-        MotorValVec LastAction;
-        this->Base::Scheduler->template GetData<"NetLastAction">(LastAction);
+        // --- 1. 获取原始数据 (CtrlZ顺序) ---
+        MotorValVec CurrentMotorPos_ctrlz;
+        this->Base::Scheduler->template GetData<"CurrentMotorPosition">(CurrentMotorPos_ctrlz);
+        MotorValVec CurrentMotorVel_ctrlz;
+        this->Base::Scheduler->template GetData<"CurrentMotorVelocity">(CurrentMotorVel_ctrlz);
+        MotorValVec LastAction_ctrlz; // **V2.0改动**: 从总线获取CtrlZ顺序的上一步动作
+        this->Base::Scheduler->template GetData<"NetLastAction">(LastAction_ctrlz);
         ValVec3 UserCmd3;
         this->Base::Scheduler->template GetData<"NetUserCommand3">(UserCmd3);
         ValVec3 AngVel;
@@ -138,74 +154,93 @@ public:
         ValVec3 Ang;
         this->Base::Scheduler->template GetData<"AngleValue">(Ang);
 
-        // --- 2. 计算派生观测量 ---
+        // --- 2. 派生观测量 ---
         ValVec3 ProjectedGravity = ComputeProjectedGravity(Ang, this->GravityVector);
         
-        // 步态相位 (Gait Phase)
-        size_t t = this->Base::Scheduler->getTimeStamp();
-        InferencePrecision phase = fmod(this->dt * static_cast<InferencePrecision>(t), this->cycle_time) / this->cycle_time;
-        ClockVec ClockVector = {std::sin(phase * 2.0 * M_PI), std::cos(phase * 2.0 * M_PI)};
+        // **V2.0改动**: is_standing逻辑与leggedlab严格对齐
+        InferencePrecision cmd_speed_linear = std::sqrt(UserCmd3[0] * UserCmd3[0] + UserCmd3[1] * UserCmd3[1]);
+        InferencePrecision cmd_speed_angular = std::abs(UserCmd3[2]);
+        bool is_standing = (cmd_speed_linear <= 0.1) && (cmd_speed_angular <= 0.05);
 
-        // 步态模式 (Gait Mode, standing vs walking) - one hot编码
-        bool is_standing = (UserCmd3.toVector().abs().max() <= 0.1); // 简化的站立判断
+        InferencePrecision phase {0.0};
+        if (!is_standing) {
+            size_t t = this->Base::Scheduler->getTimeStamp();
+            phase = fmod(this->dt * static_cast<InferencePrecision>(t), this->cycle_time) / this->cycle_time;
+        }
+        ClockVec ClockVector = {std::sin(phase * 2.0 * M_PI), std::cos(phase * 2.0 * M_PI)};
         GaitVec GaitModeVector = {is_standing ? 1.0f : 0.0f, is_standing ? 0.0f : 1.0f};
 
-        // --- 3. 构建单帧观测向量 (顺序严格对齐Python实现) ---
+        // --- 3. 构建单帧观测向量 (legggedlab顺序) ---
+        MotorValVec RelativeMotorPos_leggedlab;
+        MotorValVec CurrentMotorVel_leggedlab;
+        MotorValVec LastAction_leggedlab;
+        
+        for (size_t i = 0; i < JOINT_NUMBER; ++i) {
+            int ctrlz_idx = this->LeggedLabToCtrlZ_RemapIdx[i];
+            RelativeMotorPos_leggedlab[i] = CurrentMotorPos_ctrlz[ctrlz_idx] - this->Base::JointDefaultPos[ctrlz_idx];
+            CurrentMotorVel_leggedlab[i] = CurrentMotorVel_ctrlz[ctrlz_idx];
+            LastAction_leggedlab[i] = LastAction_ctrlz[ctrlz_idx]; // **V2.0改动**
+        }
+
         auto SingleFrameObs = math::cat(
-            AngVel,
-            ProjectedGravity,
-            UserCmd3,
-            ClockVector,
-            GaitModeVector,
-            CurrentMotorPos - this->Base::JointDefaultPos, // 相对关节位置
-            CurrentMotorVel,
-            LastAction
+            AngVel, ProjectedGravity, UserCmd3, ClockVector, GaitModeVector,
+            RelativeMotorPos_leggedlab, CurrentMotorVel_leggedlab, LastAction_leggedlab
         );
 
-        // --- 4. 缩放单帧观测并推入历史缓冲区 ---
+        // --- 4. 缩放、推入历史、填充输入张量 ---
         auto ScaledSingleFrameObs = SingleFrameObs * this->InputScaleVec;
         this->HistoryObsBuffer.push(ScaledSingleFrameObs);
-
-        // --- 5. 构建最终送入ONNX模型的两个输入张量 ---
-        // `obs` input: 当前最新的、已缩放的观测帧
+        
         this->InputObsTensor.Array() = ScaledSingleFrameObs;
-
-        // `obs_history` input: 拼接历史缓冲区中的所有帧
         for (size_t i = 0; i < HISTORY_LENGTH; ++i) {
-            // HistoryObsBuffer[0] 是最旧的, [-1] 是最新的
-            // 我们需要按照Python中扁平化的顺序填充 (通常是[oldest, ..., newest])
             size_t tensor_offset = i * SINGLE_FRAME_LENGTH;
             std::copy(this->HistoryObsBuffer[i].begin(),
                       this->HistoryObsBuffer[i].end(),
                       this->InputHistoryTensor.Array().begin() + tensor_offset);
         }
-
-        // --- 6. 裁剪最终的输入张量 ---
+        
         this->InputObsTensor.Array() = decltype(this->InputObsTensor.Array())::clamp(
-            this->InputObsTensor.Array(), -this->Base::ClipObservation, this->Base::ClipObservation
-        );
+            this->InputObsTensor.Array(), -this->Base::ClipObservation, this->Base::ClipObservation);
         this->InputHistoryTensor.Array() = decltype(this->InputHistoryTensor.Array())::clamp(
-            this->InputHistoryTensor.Array(), -this->Base::ClipObservation, this->Base::ClipObservation
-        );
+            this->InputHistoryTensor.Array(), -this->Base::ClipObservation, this->Base::ClipObservation);
     }
 
     void PostProcess() override {
-        // --- 这部分与标准推理Worker完全相同 ---
-        auto RawAction = this->OutputTensor.toVector();
-        auto ClippedRawAction = MotorValVec::clamp(RawAction, -this->Base::ClipAction, this->Base::ClipAction);
+        // --- 1. 获取网络输出 (leggedlab顺序) ---
+        auto RawAction_leggedlab = this->OutputTensor.toVector();
+
+        // --- 2. 裁剪和缩放 (leggedlab顺序) ---
+        auto ClippedRawAction_leggedlab = MotorValVec::clamp(RawAction_leggedlab, -this->Base::ClipAction, this->Base::ClipAction);
+        auto ScaledAction_leggedlab = ClippedRawAction_leggedlab * this->OutputScaleVec; // 注意：先缩放再加默认位置
         
-        this->Base::Scheduler->template SetData<"NetLastAction">(ClippedRawAction);
+        // --- 3. 重映射回CtrlZ顺序 ---
+        MotorValVec ClippedRawAction_ctrlz;
+        MotorValVec ScaledAction_with_default_ctrlz;
+        for (size_t i = 0; i < JOINT_NUMBER; ++i) {
+            int leggedlab_idx = i;
+            int ctrlz_idx = this->LeggedLabToCtrlZ_RemapIdx[leggedlab_idx];
+            
+            // 将leggedlab顺序的第i个关节的数据，放到CtrlZ顺序的第ctrlz_idx个位置
+            ClippedRawAction_ctrlz[ctrlz_idx] = ClippedRawAction_leggedlab[leggedlab_idx];
+            // 在CtrlZ顺序下加上对应的默认关节位置
+            ScaledAction_with_default_ctrlz[ctrlz_idx] = ScaledAction_leggedlab[leggedlab_idx] + this->Base::JointDefaultPos[ctrlz_idx];
+        }
 
-        auto ScaledAction = ClippedRawAction * this->OutputScaleVec + this->Base::JointDefaultPos;
-        this->Base::Scheduler->template SetData<"NetScaledAction">(ScaledAction);
+        // --- 4. 写入数据总线 (全部使用CtrlZ顺序) ---
+        // **V2.0改动**: 写入CtrlZ顺序的last_action，保证日志和下一帧输入的一致性
+        this->Base::Scheduler->template SetData<"NetLastAction">(ClippedRawAction_ctrlz);
+        
+        // **V2.0改动**: NetScaledAction现在是CtrlZ顺序，且包含了default_pos，更具物理意义
+        this->Base::Scheduler->template SetData<"NetScaledAction">(ScaledAction_with_default_ctrlz);
 
-        auto FinalTargetPosition = MotorValVec::clamp(ScaledAction, this->Base::JointClipLower, this->Base::JointClipUpper);
+        // --- 5. 最终目标位置限幅并写入总线 (CtrlZ顺序) ---
+        auto FinalTargetPosition = MotorValVec::clamp(ScaledAction_with_default_ctrlz, this->Base::JointClipLower, this->Base::JointClipUpper);
         this->Base::Scheduler->template SetData<"TargetMotorPosition">(FinalTargetPosition);
 
-        // 记录推理时间
+        // --- 6. 记录推理时间 ---
         this->end_time = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(this->end_time - this->start_time);
-        InferencePrecision inference_time = static_cast<InferencePrecision>(duration.count()) / 1000.0;
+        InferencePrecision inference_time = static_cast<InferencePrecision>(duration.count()) / 1000.0; // ms
         this->Base::Scheduler->template SetData<"InferenceTime">(inference_time);
     }
 };
